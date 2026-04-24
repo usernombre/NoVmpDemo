@@ -1,0 +1,14 @@
+## Visual Studio Code (https://github.com/github/gitignore/blame/main/Global/VisualStudioCode.gitignore)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+!*.code-workspace
+
+# Built Visual Studio Code Extensions
+*.vsix
+
+## Build artifacts
+build/
