@@ -1297,8 +1297,24 @@ std::map<opcode_id, opcode_descriptor> opcodes = {
                  // [[ 000000014009524C: mov  dword ptr [r10], edx
                  i_write_vsp(vstate, is[2], 0, 8);
       }}},
-    {// FIXME: improve check
-     "VMEXIT",
+    // FIXME: improve check
+    {"VCALL",
+     {{1},
+
+      [](vm_state *vstate, instruction &vins, const std::vector<char> &var) -> bool {
+          auto &is = vins.stream;
+          auto &ps = vins.parameter_sizes;
+
+          return is.size() == 13 &&
+
+                 // [[ FFFFFFFFFFFFFFFF: loadc        edx, 2
+                 i_loadc(vstate, is[0]) &&
+
+                 // [[ 000000014013ACBF: call  eax
+                 is[8].id == X86_INS_CALL;
+      }}},
+    // FIXME: improve check
+    {"VEXIT",
      {{},
 
       [](vm_state *vstate, instruction &vins, const std::vector<char> &var) -> bool {
