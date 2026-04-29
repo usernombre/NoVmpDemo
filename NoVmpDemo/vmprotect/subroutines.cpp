@@ -15,6 +15,7 @@
 //
 #include "subroutines.hpp"
 #include "debug.hpp"
+#include "vtil_lifter.hpp"
 
 using namespace vtil::logger;
 
@@ -119,7 +120,6 @@ void reduce_chunk(vm_state *vstate, instruction_stream &is,
     std::map<x86_reg, bool> traced = {};
     traced[X86_REG_RSP] = true;
     traced[vstate->reg_vsp] = true;
-    traced[vstate->reg_vht] = true; // FIXME: HACK (?)
 
     // If JA is present, always take the branch
     //
@@ -207,9 +207,9 @@ void reduce_chunk(vm_state *vstate, instruction_stream &is,
 
         // These instructions should always be tracked
         //
-        if (ins.id == X86_INS_CALL || ins.mnemonic == "loadc") {
-            should_be_tracked = true;
-        }
+        // if (ins.id == X86_INS_CALL || ins.mnemonic == "loadc") {
+        //    should_be_tracked = true;
+        //}
 
         // If instruction is tracked:
         //
@@ -332,6 +332,8 @@ std::pair<std::vector<vtil::operand>, vtil::vip_t> parse_vmenter(vm_state *vstat
     // Instruction stream should start with a 32 bit constant being pushed which is the
     // encrypted offset to the beginning of the virtual instruction stream
     //
+    if (is[0].is(X86_INS_PUSHFQ, {}))
+        is.erase(1);
     fassert(is[0].is(X86_INS_PUSH, {X86_OP_IMM}));
     uint32_t vip_offset_encrypted = is[0].operands[0].imm;
 
@@ -486,4 +488,196 @@ std::vector<vtil::operand> parse_vmexit(vm_state *vstate, const instruction_stre
     }
     unreachable();
 }
+
+// Handles the VJMP instruction
+//
+void handle_vjmp(vm_state *vstate, vtil::basic_block *block) {
+    // Pop target from stack.
+    //
+    auto jmp_dest = block->tmp(64);
+    block->pop(jmp_dest);
+
+    if (vstate->dir_vip < 0)
+        block->sub(jmp_dest, 1);
+
+    // If relocs stripped, substract image base, uses absolute address.
+    //
+    if (!vstate->img->has_relocs)
+        block->sub(jmp_dest, vstate->img->get_real_image_base());
+
+    // Insert jump to the location.
+    //
+    block->jmp(jmp_dest);
+
+    // Copy the current block and pass it through optimization.
+    //
+    // FIXME: find a better way of cloning a block
+    auto routine_copy = block->owner->clone();
+    auto block_copy = routine_copy->get_block(block->entry_vip);
+    vtil::optimizer::apply_all(block_copy);
+
+    // Allocate an array of resolved destinations.
+    //
+    vtil::tracer tracer = {};
+    std::vector<vtil::vip_t> destination_list;
+    uint64_t image_base = vstate->img->has_relocs ? 0 : vstate->img->get_real_image_base();
+    auto branch_info = vtil::optimizer::aux::analyze_branch(block_copy, &tracer, {.pack = true});
+    if (vmp::verbosity >= 1) {
+        log<CON_YLW>("CC: %s\n", branch_info.cc);
+        log<CON_YLW>("VJMP => %s\n", branch_info.destinations);
+    }
+    for (auto &branch : branch_info.destinations) {
+        // If not constant:
+        //
+        if (!branch->is_constant()) {
+            // Recursively trace the expression and remove any matches of REG_IMGBASE.
+            //
+            branch = tracer.rtrace_pexp(*branch);
+            branch
+                .transform([image_base](vtil::symbolic::expression::delegate &ex) {
+                    if (ex->is_variable()) {
+                        auto &var = ex->uid.get<vtil::symbolic::variable>();
+                        if (var.is_register() && var.reg() == vtil::REG_IMGBASE)
+                            *+ex = {image_base, ex->size()};
+                    }
+                })
+                .simplify(true);
+        }
+
+        // If still not constant:
+        //
+        if (!branch->is_constant()) {
+            // TODO: Handle switch table patterns.
+            //
+            log<CON_YLW>("VJMP =>\n");
+            for (auto [branch, idx] : vtil::zip(branch_info.destinations, vtil::iindices)) {
+                log<CON_YLW>("-- %d) %s\n", idx, branch);
+                log<CON_YLW>(">> %s\n", tracer.rtrace_exp(*branch));
+            }
+            log<CON_YLW>("CC: %s\n", branch_info.cc);
+            // vtil::optimizer::aux::analyze_branch( block, &tracer, false );
+            throw std::runtime_error("Whoooops hit switch case...");
+        }
+
+        destination_list.push_back(*branch->get<vtil::vip_t>());
+    }
+
+    for (auto &dst : destination_list) {
+        if (vmp::verbosity >= 1) {
+            log<CON_YLW>("Exploring branch => %p\n", dst);
+        }
+        vm_state vstate_dup = *vstate;
+        vstate_dup.vip = dst + (vstate->dir_vip < 0 ? +1 : 0);
+        // vstate_dup.next();
+        lift_il(block->fork(dst), &vstate_dup);
+    }
+}
+
+// Handles the VEXIT instruction
+//
+void handle_vexit(vm_state *vstate, vtil::basic_block *block, const instruction_stream &is) {
+    // Parse VEXIT to resolve the order registers are popped
+    //
+    std::vector exit_stack = parse_vmexit(vstate, is);
+
+    // Simulate the VPOP for each register being popped in the routine
+    //
+    for (auto &op : exit_stack)
+        block->pop(op);
+
+    // Pop target from stack.
+    //
+    vtil::operand jmp_dest = block->tmp(64);
+    block->pop(jmp_dest);
+
+    // Insert vexit to the location.
+    //
+    block->vexit(jmp_dest);
+
+    // Copy the current block and pass it through optimization.
+    //
+    // FIXME: find a better way of cloning a block
+    auto routine_copy = block->owner->clone();
+    vtil::optimizer::apply_all(routine_copy);
+    auto block_copy = routine_copy->get_block(block->entry_vip);
+
+    log<CON_YLW>("JMP %s\n", jmp_dest.to_string());
+    log<CON_YLW>("INS %s\n", block_copy->back().to_string());
+    // for (auto &ins: *block_copy) {
+    //     log<CON_YLW>("INS %s\n", ins.to_string());
+    // }
+
+    jmp_dest = block_copy->back().operands[0];
+    log<CON_YLW>("jmp %s\n", jmp_dest.to_string());
+
+    if (jmp_dest.is_immediate() && vstate->img->is_rva_in_vmp_scn(jmp_dest.imm().u64)) {
+        log<CON_YLW>("INSIDE\n");
+        // If return address points to a PUSH IMM32, aka VMENTER.
+        //
+        auto disasm = deobfuscate(vstate->img, jmp_dest.imm().u64);
+        if (disasm.size() && disasm[1].is(X86_INS_PUSH, {X86_OP_IMM})) {
+            // Convert into vxcall and indicate that push is implicit by
+            // shifting the stack pointer.
+            //
+            block->wback().base = &vtil::ins::vxcall;
+            block->wback().vip = vstate->vip;
+            block->shift_sp(8, false, block->end());
+
+            // Continue lifting from the linked virtual machine.
+            //
+            vm_state state = {vstate->img, jmp_dest.imm().u64};
+            lift_il(block, &state);
+        }
+    }
+
+    // vtil::tracer tracer;
+    // auto stack_0 = vtil::symbolic::variable{ block->owner->entry_point->begin(), vtil::REG_SP
+    // }.to_expression(); auto stack_1 = tracer.rtrace_p( { std::prev( block->end() ), vtil::REG_SP
+    // } ) + block->sp_offset; auto offset = stack_1 - stack_0; if (vmp::verbosity >= 1) {
+    //     log( "stack0 => %s\n", stack_0.to_string() );
+    //     log( "stack1 => %s\n", stack_1.to_string() );
+    //     log( "sp offset => %s\n", offset.to_string() );
+    // }
+
+    //// If stack offset is non-const or [Offset < 0]:
+    ////
+    // if ( !offset.is_constant() || *offset.get<true>() < 0 )
+    //{
+    //     // Try to read from the top of the stack.
+    //     //
+    //     auto continue_from = ( tracer.rtrace_p( { std::prev( block->end() ),
+    //                             { tracer( { std::prev( block->end() ), vtil::REG_SP } ) +
+    //                             block->sp_offset, 64 } } ) - (vstate->img->has_relocs ?
+    //                             vtil::symbolic::variable{ {}, vtil::REG_IMGBASE }.to_expression()
+    //                             : vtil::symbolic::expression{ vstate->img->get_real_image_base()
+    //                             })).simplify( true );
+    //     log( "continue => %s\n", continue_from.to_string() );
+    //     log( "constant => %d\n", continue_from.is_constant() );
+    //     log( "in_vmp => %d\n", vstate->img->is_rva_in_vmp_scn( *continue_from.get() ));
+    //     // If constant and is in VMP section:
+    //     //
+    //     if ( continue_from.is_constant() && vstate->img->is_rva_in_vmp_scn( *continue_from.get()
+    //     ) )
+    //     {
+    //         // If return address points to a PUSH IMM32, aka VMENTER.
+    //         //
+    //         auto disasm = deobfuscate( vstate->img, *continue_from.get() );
+    //         if ( disasm.size() && disasm[ 0 ].is( X86_INS_PUSH, { X86_OP_IMM } ) )
+    //         {
+    //             // Convert into vxcall and indicate that push is implicit by
+    //             // shifting the stack pointer.
+    //             //
+    //             block->wback().base = &vtil::ins::vxcall;
+    //             block->wback().vip = vstate->vip;
+    //             block->shift_sp( 8, false, block->end() );
+
+    //            // Continue lifting from the linked virtual machine.
+    //            //
+    //            vm_state state = { vstate->img, *continue_from.get() };
+    //            lift_il( block, &state );
+    //        }
+    //    }
+    //}
+}
+
 }; // namespace vmp

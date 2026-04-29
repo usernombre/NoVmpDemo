@@ -19,10 +19,6 @@
 #include <vtil/vtil>
 
 namespace vmp {
-// List of vmp section names, used to chain VMs, detecting re-entry.
-//
-inline std::vector<std::string> section_prefixes = {".vmp"};
-
 vtil::basic_block *lift_il(vtil::basic_block *block, vm_state *vstate);
 static vtil::routine *lift_il(vm_state *vstate) {
     if (vtil::routine *rtn = lift_il(nullptr, vstate)->owner)

@@ -20,6 +20,10 @@
 #include <vtil/arch>
 
 namespace vmp {
+// List of vmp section names, used to chain VMs, detecting re-entry.
+//
+inline std::vector<std::string> section_prefixes = {".vmp"};
+
 struct virtual_routine {
     uint32_t jmp_rva;
     bool mid_routine;
@@ -42,9 +46,22 @@ struct image_desc {
     template <typename T = void> T *rva_to_ptr(uint32_t rva) {
         return get_pe_header()->rva_to_ptr<T>(rva);
     }
+
     win::section_header_t *rva_to_section(uint32_t rva) {
         return get_pe_header()->rva_to_section(rva);
     }
+
+    bool is_rva_in_vmp_scn(uint32_t rva) {
+        auto section = rva_to_section(rva);
+        if (!section)
+            return false;
+
+        for (const auto &prefix : section_prefixes)
+            if (!memcmp(prefix.data(), &section->name.short_name[0], prefix.size()))
+                return true;
+
+        return false;
+    };
 
     // List of virtualized routines
     //

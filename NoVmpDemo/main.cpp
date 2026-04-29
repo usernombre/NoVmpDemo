@@ -50,25 +50,11 @@ static void write_raw(void *data, size_t size, const std::string &file_path) {
     file.write((char *)data, size);
 }
 
-static const std::string gpl3_license_header =
-    ""
-    "##############################################################################\n"
-    "# NoVmp  Copyright (C) 2020 Can Boluk                                        #\n"
-    "# This program comes with absolutely no warranty, and it is free software.   #\n"
-    "# You are welcome to redistribute it under certain conditions--for which you #\n"
-    "# can refer to the GNU General Public License v3.                            #\n"
-    "##############################################################################\n\n";
-
 int main(int argc, const char **argv) {
     vtil::logger::error_hook = [](const std::string &message) {
         log<CON_RED>("[*] Unexpected error: %s\n", message);
         throw std::runtime_error(message);
     };
-
-    // Feelin' fancy.
-    //
-    for (char c : gpl3_license_header)
-        log(c == '#' ? CON_RED : CON_YLW, "%c", c);
 
     // Parse command line.
     //
@@ -128,7 +114,7 @@ int main(int argc, const char **argv) {
     if (entrypoint) {
         // FIXME: ensure the entrypoint contains a vmenter
         uint32_t entry_rva = desc->get_nt_headers()->optional_header.entry_point;
-        log<CON_YLW>("Discovered entrypoint vmenter at %p\n", entry_rva);
+        log<CON_YLW>("Discovered vmenter at entrypoint (%p)\n", entry_rva);
         desc->virt_routines.push_back(
             vmp::virtual_routine{.jmp_rva = entry_rva, .mid_routine = false});
     }
@@ -190,7 +176,7 @@ int main(int argc, const char **argv) {
             desc->virt_routines.push_back(
                 vmp::virtual_routine{.jmp_rva = jmp_rva, .mid_routine = mid_func});
 
-            log<CON_YLW>("Discovered vmenter at RVA %p\n", ptr);
+            log<CON_YLW>("Discovered vmenter at %p\n", ptr);
         }
     }
 

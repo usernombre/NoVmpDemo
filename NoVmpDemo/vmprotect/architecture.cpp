@@ -1313,7 +1313,25 @@ std::map<opcode_id, opcode_descriptor> opcodes = {
                  // [[ 000000014013ACBF: call  eax
                  is[8].id == X86_INS_CALL;
       }}},
-    // FIXME: improve check
+    //{"VSWAP",
+    // {{},
+
+    //  [](vm_state *vstate, instruction &vins, const std::vector<char> &var) -> bool {
+    //      auto &is = vins.stream;
+    //      auto &ps = vins.parameter_sizes;
+
+    //      return is.size() == 3 &&
+
+    //             // [[ 0000000140143C4D: mov  rdx, qword ptr [rbp]
+    //             i_read_vsp(vstate, is[0], 0, 0) &&
+
+    //             // [[ 0000000140143C58: add  rbp, 8
+    //             i_shift_vsp(vstate, is[1], 8) &&
+
+    //             // [[ 0000000140143C65: mov  rsi, rdx
+    //             is[2].is(X86_INS_MOV, {X86_OP_REG, X86_OP_REG}) && is[2].operands[0].reg ==
+    //             vstate->reg_vip;
+    //  }}},
     {"VEXIT",
      {{},
 
@@ -1321,19 +1339,14 @@ std::map<opcode_id, opcode_descriptor> opcodes = {
           auto &is = vins.stream;
           auto &ps = vins.parameter_sizes;
 
-          return is.size() == 3 &&
+          return is.size() == 2 &&
 
                  // [[ 000000014013B289: mov  rsp, rbp
-                 is[0].id == X86_INS_MOV && is[0].operands[0].type == X86_OP_REG &&
-                 is[0].operands[0].reg == X86_REG_RSP && is[0].operands[1].type == X86_OP_REG &&
-                 is[0].operands[1].reg == vstate->reg_vsp &&
+                 is[0].is(X86_INS_MOV, {X86_OP_REG, X86_OP_REG}) &&
+                 is[0].operands[0].reg == X86_REG_RSP && is[0].operands[1].reg == vstate->reg_vsp &&
 
                  // [[ 000000014013B2B4: pop  rbp
-                 (is[1].id == X86_INS_POP && is[1].operands[0].type == X86_OP_REG &&
-                      is[1].operands[0].reg == vstate->reg_vsp ||
-
-                  is[2].id == X86_INS_POP && is[2].operands[0].type == X86_OP_REG &&
-                      is[2].operands[0].reg == vstate->reg_vsp);
+                 is[1].is(X86_INS_POP, {X86_OP_REG}) && is[1].operands[0].reg == vstate->reg_vsp;
       }}},
 };
 

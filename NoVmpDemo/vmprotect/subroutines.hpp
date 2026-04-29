@@ -58,4 +58,12 @@ std::pair<std::vector<vtil::operand>, vtil::vip_t> parse_vmenter(vm_state *vstat
 // Parses the VMEXIT subroutine and extracts the order registers are pop'd from the stack.
 //
 std::vector<vtil::operand> parse_vmexit(vm_state *vstate, const instruction_stream &is);
+
+// Handles the VJMP instruction
+//
+void handle_vjmp(vm_state *vstate, vtil::basic_block *block);
+
+// Handles the VEXIT instruction
+//
+void handle_vexit(vm_state *vstate, vtil::basic_block *block, const instruction_stream &is);
 }; // namespace vmp
