@@ -36,19 +36,19 @@ std::pair<int, vm_parameter> extract_next_parameter(vm_state *state, const instr
 
     // Find the next parameter, if available, stopping at the next handler index
     //
-    int parameter_index = is.next(parameter_filter, index);
+    int i_parameter = is.next(parameter_filter, index);
     // FIXME: find a better way of skipping the handler index
-    if (parameter_index == -1 || is.size() - parameter_index <= 3)
+    if (i_parameter == -1 || i_parameter + 4 >= is.size())
         return {-1, {}};
 
     // Fill out the block details
     //
-    out.address = is[parameter_index].address;
-    out.size = is[parameter_index].operands[1].size;
-    out.output_register = is[parameter_index].operands[0].reg;
+    out.address = is[i_parameter].address;
+    out.size = is[i_parameter].operands[1].size;
+    out.output_register = is[i_parameter].operands[0].reg;
     memcpy(&out.u64, state->read_vip(out.size), out.size);
 
-    return {parameter_index + 1, out};
+    return {i_parameter + 1, out};
 }
 
 // Extracts all of the parameters within the given instruction stream

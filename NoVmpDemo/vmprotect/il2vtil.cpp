@@ -527,24 +527,29 @@ static std::vector<converter> converters =
 				uint8_t nargs = p[ 0 ];
 				// rax := [rsp]
 				fl->pop( X86_REG_RAX );
+				fl->vpinr( X86_REG_RAX );
 				for (int i = 1; i <= nargs; i++) {
-					if (nargs == 1) {
+					if (i == 1) {
 						// rcx := [rsp+8]
 						fl->pop( X86_REG_RCX );
-					} else if (nargs == 2) {
+						fl->vpinr( X86_REG_RCX );
+					} else if (i == 2) {
 						// rdx := [rsp+16]
 						fl->pop( X86_REG_RDX );
-					} else if (nargs == 3) {
+						fl->vpinr( X86_REG_RDX );
+					} else if (i == 3) {
 						// r8 := [rsp+24]
 						fl->pop( X86_REG_R8 );
-					} else if (nargs == 4) {
+						fl->vpinr( X86_REG_R8 );
+					} else if (i == 4) {
 						// r9 := [rsp+32]
 						fl->pop( X86_REG_R9 );
+						fl->vpinr( X86_REG_R9 );
 					}
 				}
-				// call rax
-				//fl->vemits( "call rax" );
-				fl->vxcall( X86_REG_RAX );
+				// CALL
+				fl->vemits( "call rax" );
+				fl->vpinw( X86_REG_RAX );
 			}
 		},
 		{

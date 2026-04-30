@@ -90,11 +90,15 @@ vtil::basic_block *lift_il(vtil::basic_block *block, vm_state *vstate) {
         // Unroll the stream
         //
         is = vstate->unroll();
-        instruction_stream is_reduced = is;
+        if (verbosity >= 2) {
+            log<CON_BLU>(">> FULL\n");
+            is.dump();
+        }
 
         // Classify the handler into an instruction
         //
-        std::vector parameters = extract_parameters(vstate, is_reduced);
+        std::vector parameters = extract_parameters(vstate, is);
+        instruction_stream is_reduced = is;
         reduce_chunk(vstate, is_reduced, parameters);
         il_instruction = arch::classify(vstate, is_reduced);
 
@@ -106,10 +110,6 @@ vtil::basic_block *lift_il(vtil::basic_block *block, vm_state *vstate) {
             log<CON_YLW>(")\n", il_instruction.op);
             log<CON_BLU>(">> REDUCED\n");
             is_reduced.dump();
-            if (verbosity >= 2) {
-                log<CON_BLU>(">> FULL\n");
-                is.dump();
-            }
         }
 
         // Break out of the loop to handle special VM instructions
